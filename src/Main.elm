@@ -5,6 +5,7 @@ import Color.Manipulate as Manipulate
 import Data exposing (..)
 import Dict as Dict
 import Html
+import Json.Decode as D
 import LineChart
 import LineChart.Area as Area
 import LineChart.Axis as Axis
@@ -27,8 +28,9 @@ import LineChart.Line as Line
 import List as List
 import Random
 import Random.Pipeline
+import String
 import Svg
-import Time
+import Time exposing (Month(..))
 
 
 
@@ -43,7 +45,7 @@ type Category
 
 
 type alias Model =
-    { data : Repos
+    { data : Result String Repos
     , hinted : Maybe Entry
     , category : Category
     }
@@ -55,7 +57,7 @@ type alias Model =
 
 init : ( Model, Cmd Msg )
 init =
-    ( { data = Dict.empty
+    ( { data = Result.mapError D.errorToString <| D.decodeString Data.repos Data.data
       , hinted = Nothing
       , category = Statements
       }
@@ -67,7 +69,7 @@ init =
 -- API
 
 
-setData : Repos -> Model -> Model
+setData : Result String Repos -> Model -> Model
 setData repos model =
     { model | data = repos }
 
@@ -87,7 +89,7 @@ setCategory category model =
 
 
 type Msg
-    = RecieveData Repos
+    = RecieveData (Result String Repos)
     | ChangeCategory Category
     | Hint (Maybe Entry)
 
@@ -141,9 +143,18 @@ mkLine category ( name, repo ) =
 view : ( Model, Cmd Msg ) -> Html.Html Msg
 view ( model, _ ) =
     Html.div []
-        [ LineChart.viewCustom (chartConfig model) <|
-            List.map (mkLine model.category) <|
-                Dict.toList model.data
+        [ case model.data of
+            Ok data ->
+                LineChart.viewCustom (chartConfig model) <|
+                    List.map (mkLine model.category) <|
+                        Dict.toList data
+
+            Err error ->
+                Html.div
+                    []
+                    [ Html.div [] [ Html.text "Failed to parse data, you messed up something with it" ]
+                    , Html.div [] [ Html.text error ]
+                    ]
         ]
 
 
@@ -175,7 +186,7 @@ chartConfig model =
 yAxisConfig : Axis.Config Entry Msg
 yAxisConfig =
     Axis.custom
-        { title = Title.atDataMax -10 -10 "Percentage"
+        { title = Title.default ""
         , variable = Just << .value
         , pixels = 450
         , range = Range.window 0.0 100.0
@@ -196,11 +207,11 @@ xAxisConfig : Axis.Config Entry Msg
 xAxisConfig =
     Axis.custom
         { title = Title.default "Time"
-        , variable = Just << .date
+        , variable = Just << toFloat << Time.posixToMillis << .date
         , pixels = 1270
-        , range = Range.padded 20 20
+        , range = Range.default
         , axisLine = AxisLine.none
-        , ticks = Ticks.timeCustom 10 tickTime
+        , ticks = Ticks.default
         }
 
 
@@ -221,21 +232,18 @@ tickRain ( value, label ) =
         }
 
 
-tickTime : Tick.Time -> Tick.Config msg
-tickTime time =
-    let
-        label =
-            Tick.format time
-    in
-    Tick.custom
-        { position = time.timestamp
-        , color = Colors.gray
-        , width = 1
-        , length = 5
-        , grid = False
-        , direction = Tick.negative
-        , label = Just (tickLabel label)
-        }
+
+-- tickString : String -> Tick.Config msg
+-- tickString str =
+--     Tick.custom
+--         { position = str
+--         , color = Colors.gray
+--         , width = 1
+--         , length = 5
+--         , grid = False
+--         , direction = Tick.negative
+--         , label = Just (tickLabel str)
+--         }
 
 
 tickLabel : String -> Svg.Svg msg
@@ -291,6 +299,68 @@ toLineStyle maybeHovered lineData =
 
             else
                 Line.style 1 Manipulate.grayscale
+
+
+
+-- UTILS
+
+
+formatDate : Time.Posix -> String
+formatDate t =
+    (String.fromInt <| Time.toYear Time.utc t)
+        ++ "/"
+        ++ (monthToStr <| Time.toMonth Time.utc t)
+        ++ "/"
+        ++ (dayToStr <| Time.toDay Time.utc t)
+
+
+dayToStr : Int -> String
+dayToStr d =
+    if d > 9 then
+        String.fromInt d
+
+    else
+        "0" ++ String.fromInt d
+
+
+monthToStr : Month -> String
+monthToStr month =
+    case month of
+        Jan ->
+            "01"
+
+        Feb ->
+            "02"
+
+        Mar ->
+            "03"
+
+        Apr ->
+            "04"
+
+        May ->
+            "05"
+
+        Jun ->
+            "06"
+
+        Jul ->
+            "07"
+
+        Aug ->
+            "08"
+
+        Sep ->
+            "09"
+
+        Oct ->
+            "10"
+
+        Nov ->
+            "11"
+
+        Dec ->
+            "12"
 
 
 
