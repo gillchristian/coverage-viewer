@@ -5,6 +5,8 @@ import Color.Manipulate as Manipulate
 import Data exposing (..)
 import Dict as Dict
 import Html
+import Html.Attributes as Attr
+import Html.Events exposing (onClick)
 import Json.Decode as D
 import LineChart
 import LineChart.Area as Area
@@ -145,9 +147,13 @@ view ( model, _ ) =
     Html.div []
         [ case model.data of
             Ok data ->
-                LineChart.viewCustom (chartConfig model) <|
-                    List.map (mkLine model.category) <|
-                        Dict.toList data
+                Html.div
+                    []
+                    [ categorySwith model.category
+                    , Dict.toList data
+                        |> List.map (mkLine model.category)
+                        |> LineChart.viewCustom (chartConfig model)
+                    ]
 
             Err error ->
                 Html.div
@@ -155,6 +161,25 @@ view ( model, _ ) =
                     [ Html.div [] [ Html.text "Failed to parse data, you messed up something with it" ]
                     , Html.div [] [ Html.text error ]
                     ]
+        ]
+
+
+categorySwith : Category -> Html.Html Msg
+categorySwith selected =
+    let
+        classes cat =
+            Attr.classList
+                [ ( "button", True )
+                , ( "m-l-10", True )
+                , ( "active", selected == cat )
+                ]
+    in
+    Html.div
+        []
+        [ Html.button [ classes Statements, onClick <| ChangeCategory Statements ] [ Html.text "Statements" ]
+        , Html.button [ classes Branches, onClick <| ChangeCategory Branches ] [ Html.text "Branches" ]
+        , Html.button [ classes Functions, onClick <| ChangeCategory Functions ] [ Html.text "Functions" ]
+        , Html.button [ classes Lines, onClick <| ChangeCategory Lines ] [ Html.text "Lines" ]
         ]
 
 
@@ -171,11 +196,16 @@ chartConfig model =
     , intersection = Intersection.default
     , legends = Legends.default
     , events = eventsConfig
-    , junk = Junk.default
+    , junk =
+        Junk.hoverOne model.hinted
+            [ ( categoryToStr model.category
+              , \datum -> String.fromFloat datum.value ++ "%"
+              )
+            ]
     , grid = Grid.default
     , area = Area.default
     , line = lineConfig model.hinted
-    , dots = Dots.custom (Dots.disconnected 4 2)
+    , dots = Dots.hoverOne model.hinted
     }
 
 
@@ -272,10 +302,11 @@ containerConfig =
 
 eventsConfig : Events.Config Entry Msg
 eventsConfig =
-    Events.custom
-        [ Events.onMouseMove Hint Events.getNearest
-        , Events.onMouseLeave (Hint Nothing)
-        ]
+    -- Events.custom
+    --     [ Events.onMouseMove Hint Events.getNearest
+    --     , Events.onMouseLeave (Hint Nothing)
+    --     ]
+    Events.hoverOne Hint
 
 
 
@@ -303,6 +334,22 @@ toLineStyle maybeHovered lineData =
 
 
 -- UTILS
+
+
+categoryToStr : Category -> String
+categoryToStr cat =
+    case cat of
+        Statements ->
+            "statements"
+
+        Branches ->
+            "branches"
+
+        Functions ->
+            "functions"
+
+        Lines ->
+            "lines"
 
 
 formatDate : Time.Posix -> String
