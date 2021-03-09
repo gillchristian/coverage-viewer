@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "build": "elm-app build"
+  },
+  "dependencies": {
+    "@tailwindcss/forms": "^0.2.1",
+    "autoprefixer": "^10.2.4",
+    "create-elm-app": "^5.22.0",
+    "postcss": "^8.2.7",
+    "postcss-cli": "^8.3.1",
+    "tailwindcss": "^2.0.3"
+  }
+}

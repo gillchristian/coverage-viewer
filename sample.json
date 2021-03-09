@@ -1,53 +1,3 @@
-module Data exposing (..)
-
-import Dict exposing (Dict)
-import Json.Decode as D
-import Json.Decode.Extra as D
-import Time exposing (Posix)
-
-
-type alias Entry =
-    { date : Posix
-    , value : Float
-    }
-
-
-type alias Repo =
-    { statements : List Entry
-    , branches : List Entry
-    , functions : List Entry
-    , lines : List Entry
-    }
-
-
-type alias Repos =
-    Dict String Repo
-
-
-entry : D.Decoder Entry
-entry =
-    D.map2 Entry
-        (D.field "date" D.datetime)
-        (D.field "value" D.float)
-
-
-repo : D.Decoder Repo
-repo =
-    D.map4 Repo
-        (D.field "statements" <| D.list entry)
-        (D.field "branches" <| D.list entry)
-        (D.field "functions" <| D.list entry)
-        (D.field "lines" <| D.list entry)
-
-
-repos : D.Decoder Repos
-repos =
-    D.dict repo
-
-
-sampleData : String
-sampleData =
-    """
 {
   "project-a": {
     "statements": [
@@ -163,4 +113,3 @@ sampleData =
     ]
   }
 }
-  """

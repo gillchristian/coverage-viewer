@@ -6,7 +6,7 @@ import Data exposing (..)
 import Dict as Dict
 import Html
 import Html.Attributes as Attr
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput)
 import Json.Decode as D
 import LineChart
 import LineChart.Area as Area
@@ -28,8 +28,6 @@ import LineChart.Junk as Junk
 import LineChart.Legends as Legends
 import LineChart.Line as Line
 import List as List
-import Random
-import Random.Pipeline
 import String
 import Svg
 import Time exposing (Month(..))
@@ -47,7 +45,8 @@ type Category
 
 
 type alias Model =
-    { data : Result String Repos
+    { dataInput : String
+    , data : Maybe (Result String Repos)
     , hinted : Maybe Entry
     , category : Category
     }
@@ -59,7 +58,8 @@ type alias Model =
 
 init : ( Model, Cmd Msg )
 init =
-    ( { data = Result.mapError D.errorToString <| D.decodeString Data.repos Data.data
+    ( { dataInput = ""
+      , data = Nothing
       , hinted = Nothing
       , category = Statements
       }
@@ -71,7 +71,7 @@ init =
 -- API
 
 
-setData : Result String Repos -> Model -> Model
+setData : Maybe (Result String Repos) -> Model -> Model
 setData repos model =
     { model | data = repos }
 
@@ -86,14 +86,22 @@ setCategory category model =
     { model | category = category }
 
 
+setDataInput : String -> Model -> Model
+setDataInput str model =
+    { model | dataInput = str }
+
+
 
 -- UPDATE
 
 
 type Msg
-    = RecieveData (Result String Repos)
+    = RecieveData (Maybe (Result String Repos))
     | ChangeCategory Category
     | Hint (Maybe Entry)
+    | OnInputChange String
+    | SubmitInput
+    | LoadSampleData
 
 
 update : Msg -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
@@ -113,6 +121,21 @@ update msg ( model, _ ) =
         Hint point ->
             model
                 |> setHint point
+                |> addCmd Cmd.none
+
+        OnInputChange str ->
+            model
+                |> setDataInput str
+                |> addCmd Cmd.none
+
+        SubmitInput ->
+            model
+                |> setData (Just <| Result.mapError D.errorToString <| D.decodeString Data.repos model.dataInput)
+                |> addCmd Cmd.none
+
+        LoadSampleData ->
+            model
+                |> setData (Just <| Result.mapError D.errorToString <| D.decodeString Data.repos Data.sampleData)
                 |> addCmd Cmd.none
 
 
@@ -144,9 +167,25 @@ mkLine category ( name, repo ) =
 
 view : ( Model, Cmd Msg ) -> Html.Html Msg
 view ( model, _ ) =
-    Html.div []
-        [ case model.data of
-            Ok data ->
+    Html.div [ Attr.class "container mx-auto" ]
+        [ Html.div
+            [ Attr.classList
+                [ ( "flex", True )
+                , ( "items-end", True )
+                , ( "p-4", True )
+                ]
+            ]
+            [ Html.div
+                [ Attr.class "mr-4" ]
+                [ textarea "JSON Coverage Data" "{ ... } " model.dataInput OnInputChange ]
+            , Html.div [] [ button "See coverage" SubmitInput ]
+            , Html.div [ Attr.class "ml-4" ] [ button "Load sample data" LoadSampleData ]
+            ]
+        , case model.data of
+            Nothing ->
+                Html.text ""
+
+            Just (Ok data) ->
                 Html.div
                     []
                     [ categorySwith model.category
@@ -155,31 +194,19 @@ view ( model, _ ) =
                         |> LineChart.viewCustom (chartConfig model)
                     ]
 
-            Err error ->
-                Html.div
-                    []
-                    [ Html.div [] [ Html.text "Failed to parse data, you messed up something with it" ]
-                    , Html.div [] [ Html.text error ]
-                    ]
+            Just (Err error) ->
+                alert "Something is wrong with the data you provided" [ error ]
         ]
 
 
 categorySwith : Category -> Html.Html Msg
 categorySwith selected =
-    let
-        classes cat =
-            Attr.classList
-                [ ( "button", True )
-                , ( "m-l-10", True )
-                , ( "active", selected == cat )
-                ]
-    in
     Html.div
-        []
-        [ Html.button [ classes Statements, onClick <| ChangeCategory Statements ] [ Html.text "Statements" ]
-        , Html.button [ classes Branches, onClick <| ChangeCategory Branches ] [ Html.text "Branches" ]
-        , Html.button [ classes Functions, onClick <| ChangeCategory Functions ] [ Html.text "Functions" ]
-        , Html.button [ classes Lines, onClick <| ChangeCategory Lines ] [ Html.text "Lines" ]
+        [ Attr.class "flex space-x-4" ]
+        [ radioGroupButton "Statements" (selected == Statements) (ChangeCategory Statements)
+        , radioGroupButton "Branches" (selected == Branches) (ChangeCategory Branches)
+        , radioGroupButton "Functions" (selected == Functions) (ChangeCategory Functions)
+        , radioGroupButton "Lines" (selected == Lines) (ChangeCategory Lines)
         ]
 
 
@@ -224,11 +251,11 @@ yAxisConfig =
         , ticks =
             Ticks.custom <|
                 \dataRange axisRange ->
-                    [ tickRain ( 0.0, "0%" )
-                    , tickRain ( 25.0, "25%" )
-                    , tickRain ( 50.0, "50%" )
-                    , tickRain ( 75.0, "75%" )
-                    , tickRain ( 100.0, "100%" )
+                    [ tickPercentage ( 0.0, "0%" )
+                    , tickPercentage ( 25.0, "25%" )
+                    , tickPercentage ( 50.0, "50%" )
+                    , tickPercentage ( 75.0, "75%" )
+                    , tickPercentage ( 100.0, "100%" )
                     ]
         }
 
@@ -241,7 +268,7 @@ xAxisConfig =
         , pixels = 1270
         , range = Range.default
         , axisLine = AxisLine.none
-        , ticks = Ticks.default
+        , ticks = Ticks.intCustom 5 tickDate
         }
 
 
@@ -249,8 +276,8 @@ xAxisConfig =
 -- CHART CONFIG / AXES / TICKS
 
 
-tickRain : ( Float, String ) -> Tick.Config msg
-tickRain ( value, label ) =
+tickPercentage : ( Float, String ) -> Tick.Config msg
+tickPercentage ( value, label ) =
     Tick.custom
         { position = value
         , color = Colors.gray
@@ -262,18 +289,24 @@ tickRain ( value, label ) =
         }
 
 
+tickDate : Int -> Tick.Config msg
+tickDate i =
+    let
+        time =
+            Time.millisToPosix i
 
--- tickString : String -> Tick.Config msg
--- tickString str =
---     Tick.custom
---         { position = str
---         , color = Colors.gray
---         , width = 1
---         , length = 5
---         , grid = False
---         , direction = Tick.negative
---         , label = Just (tickLabel str)
---         }
+        label =
+            formatDate time
+    in
+    Tick.custom
+        { position = toFloat <| Time.posixToMillis time
+        , color = Colors.gray
+        , width = 1
+        , length = 5
+        , grid = False
+        , direction = Tick.negative
+        , label = Just (tickLabel label)
+        }
 
 
 tickLabel : String -> Svg.Svg msg
@@ -330,6 +363,118 @@ toLineStyle maybeHovered lineData =
 
             else
                 Line.style 1 Manipulate.grayscale
+
+
+
+-- UI Elements
+
+
+radioGroupButton : String -> Bool -> Msg -> Html.Html Msg
+radioGroupButton text active msg =
+    Html.button
+        [ onClick msg
+        , Attr.classList
+            [ ( "inline-flex", True )
+            , ( "items-center", True )
+            , ( "px-2.5", True )
+            , ( "py-1.5", True )
+            , ( "border-2", True )
+            , ( "border-transparent", not active )
+            , ( "border-indigo-700", active )
+            , ( "text-xs", True )
+            , ( "font-medium", True )
+            , ( "rounded", True )
+            , ( "shadow-sm", True )
+            , ( "text-indigo-700", True )
+            , ( "hover:text-white", True )
+            , ( "hover:bg-indigo-700", True )
+            , ( "focus:outline-none", True )
+            , ( "focus:ring-2", True )
+            , ( "focus:ring-offset-2", True )
+            , ( "focus:ring-indigo-500", True )
+            ]
+        ]
+        [ Html.text text ]
+
+
+button : String -> Msg -> Html.Html Msg
+button text msg =
+    Html.button
+        [ onClick msg
+        , Attr.classList
+            [ ( "inline-flex", True )
+            , ( "items-center", True )
+            , ( "px-2.5", True )
+            , ( "py-1.5", True )
+            , ( "border", True )
+            , ( "border-transparent", True )
+            , ( "text-xs", True )
+            , ( "font-medium", True )
+            , ( "rounded", True )
+            , ( "", True )
+            , ( "shadow-sm", True )
+            , ( "text-white", True )
+            , ( "bg-indigo-600", True )
+            , ( "hover:bg-indigo-700", True )
+            , ( "focus:outline-none", True )
+            , ( "focus:ring-2", True )
+            , ( "focus:ring-offset-2", True )
+            , ( "focus:ring-indigo-500", True )
+            ]
+        ]
+        [ Html.text text ]
+
+
+textarea : String -> String -> String -> (String -> Msg) -> Html.Html Msg
+textarea label placeholder value msg =
+    Html.div
+        []
+        [ Html.label
+            [ Attr.classList
+                [ ( "block", True )
+                , ( "text-sm", True )
+                , ( "font-medium", True )
+                , ( "text-gray-700", True )
+                ]
+            ]
+            [ Html.text label ]
+        , Html.div
+            [ Attr.classList [ ( "mt-1", True ) ] ]
+            [ Html.textarea
+                [ Attr.value value
+                , onInput msg
+                , Attr.classList
+                    [ ( "shadow-sm", True )
+                    , ( "focus:ring-indigo-500", True )
+                    , ( "focus:border-indigo-500", True )
+                    , ( "block", True )
+                    , ( "w-full", True )
+                    , ( "sm:text-sm", True )
+                    , ( "border-gray-300", True )
+                    , ( "rounded-md", True )
+                    ]
+                , Attr.placeholder placeholder
+                ]
+                []
+            ]
+        ]
+
+
+alert : String -> List String -> Html.Html Msg
+alert title content =
+    Html.div [ Attr.class "rounded-md bg-red-50 p-4" ]
+        [ Html.div [ Attr.class "flex" ]
+            [ Html.div [ Attr.class "ml-3" ]
+                [ Html.h3 [ Attr.class "text-sm font-medium text-red-800" ]
+                    [ Html.text title ]
+                , Html.div [ Attr.class "mt-2 text-sm text-red-700" ]
+                    [ content
+                        |> List.map (\line -> Html.li [] [ Html.text line ])
+                        |> Html.ul [ Attr.class "list-disc pl-5 space-y-1" ]
+                    ]
+                ]
+            ]
+        ]
 
 
 
