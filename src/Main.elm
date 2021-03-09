@@ -1,9 +1,11 @@
 module Main exposing (..)
 
+import Array as Array exposing (Array)
 import Browser
+import Color exposing (Color)
 import Color.Manipulate as Manipulate
 import Data exposing (..)
-import Dict as Dict
+import Dict as Dict exposing (Dict)
 import Html
 import Html.Attributes as Attr
 import Html.Events exposing (onClick, onInput)
@@ -28,6 +30,10 @@ import LineChart.Junk as Junk
 import LineChart.Legends as Legends
 import LineChart.Line as Line
 import List as List
+import Maybe as Maybe
+import Platform.Sub as Sub
+import Random as Random
+import Result as Result
 import String
 import Svg
 import Time exposing (Month(..))
@@ -44,9 +50,13 @@ type Category
     | Lines
 
 
+type alias ReposWithColor =
+    Dict String ( Color, Repo )
+
+
 type alias Model =
     { dataInput : String
-    , data : Maybe (Result String Repos)
+    , data : Maybe (Result String ReposWithColor)
     , hinted : Maybe Entry
     , category : Category
     }
@@ -56,8 +66,8 @@ type alias Model =
 -- INIT
 
 
-init : ( Model, Cmd Msg )
-init =
+init : String -> ( Model, Cmd Msg )
+init _ =
     ( { dataInput = ""
       , data = Nothing
       , hinted = Nothing
@@ -71,7 +81,7 @@ init =
 -- API
 
 
-setData : Maybe (Result String Repos) -> Model -> Model
+setData : Maybe (Result String ReposWithColor) -> Model -> Model
 setData repos model =
     { model | data = repos }
 
@@ -96,22 +106,17 @@ setDataInput str model =
 
 
 type Msg
-    = RecieveData (Maybe (Result String Repos))
-    | ChangeCategory Category
+    = ChangeCategory Category
     | Hint (Maybe Entry)
     | OnInputChange String
     | SubmitInput
     | LoadSampleData
+    | ParseDataAndSetOffset String Int
 
 
-update : Msg -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
-update msg ( model, _ ) =
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
     case msg of
-        RecieveData data ->
-            model
-                |> setData data
-                |> addCmd Cmd.none
-
         ChangeCategory category ->
             model
                 |> setHint Nothing
@@ -130,43 +135,54 @@ update msg ( model, _ ) =
 
         SubmitInput ->
             model
-                |> setData (Just <| Result.mapError D.errorToString <| D.decodeString Data.repos model.dataInput)
-                |> addCmd Cmd.none
+                |> addCmd (Random.generate (ParseDataAndSetOffset model.dataInput) genColorOffset)
 
         LoadSampleData ->
             model
-                |> setData (Just <| Result.mapError D.errorToString <| D.decodeString Data.repos Data.sampleData)
+                |> addCmd (Random.generate (ParseDataAndSetOffset Data.sampleData) genColorOffset)
+
+        ParseDataAndSetOffset data offset ->
+            model
+                |> setData (Just <| decodeRepos offset data)
                 |> addCmd Cmd.none
 
 
 addCmd : Cmd Msg -> Model -> ( Model, Cmd Msg )
 addCmd cmd model =
-    ( model, Cmd.none )
+    ( model, cmd )
+
+
+genColorOffset : Random.Generator Int
+genColorOffset =
+    Random.int 0 <| Array.length availableColors
 
 
 
 -- VIEW
 
 
-mkLine : Category -> ( String, Repo ) -> LineChart.Series Entry
-mkLine category ( name, repo ) =
-    -- TODO: line color
+mkLine : Category -> ( String, ( Color, Repo ) ) -> LineChart.Series Entry
+mkLine category ( name, ( color, repo ) ) =
+    let
+        line =
+            LineChart.line color Dots.circle name
+    in
     case category of
         Statements ->
-            LineChart.line (Manipulate.lighten 0.2 Colors.cyan) Dots.circle name repo.statements
+            line repo.statements
 
         Branches ->
-            LineChart.line (Manipulate.lighten 0.2 Colors.cyan) Dots.circle name repo.branches
+            line repo.branches
 
         Functions ->
-            LineChart.line (Manipulate.lighten 0.2 Colors.cyan) Dots.circle name repo.functions
+            line repo.functions
 
         Lines ->
-            LineChart.line (Manipulate.lighten 0.2 Colors.cyan) Dots.circle name repo.lines
+            line repo.lines
 
 
-view : ( Model, Cmd Msg ) -> Html.Html Msg
-view ( model, _ ) =
+view : Model -> Html.Html Msg
+view model =
     Html.div [ Attr.class "container mx-auto" ]
         [ Html.div
             [ Attr.classList
@@ -555,13 +571,59 @@ monthToStr month =
             "12"
 
 
+decodeRepos : Int -> String -> Result String ReposWithColor
+decodeRepos offset =
+    D.decodeString Data.repos
+        >> Result.mapError D.errorToString
+        >> Result.map (addColorsToRepos offset)
+
+
+addColorsToRepos : Int -> Repos -> ReposWithColor
+addColorsToRepos offset =
+    Dict.toList
+        >> Array.fromList
+        >> Array.indexedMap (colorAndRepo offset)
+        >> Array.toList
+        >> Dict.fromList
+
+
+colorAndRepo : Int -> Int -> ( String, Repo ) -> ( String, ( Color, Repo ) )
+colorAndRepo offset i ( key, repo ) =
+    let
+        colorCount =
+            Array.length availableColors
+
+        color =
+            Array.get (modBy colorCount <| i + offset) availableColors
+                |> Maybe.withDefault Colors.cyan
+    in
+    ( key, ( color, repo ) )
+
+
+availableColors : Array Color
+availableColors =
+    Array.fromList
+        [ Colors.pink
+        , Colors.blue
+        , Colors.gold
+        , Colors.red
+        , Colors.green
+        , Colors.cyan
+        , Colors.teal
+        , Colors.purple
+        , Colors.rust
+        , Colors.gray
+        ]
+
+
 
 -- PROGRAM
 
 
 main =
-    Browser.sandbox
+    Browser.element
         { init = init
         , update = update
         , view = view
+        , subscriptions = \_ -> Sub.none
         }
