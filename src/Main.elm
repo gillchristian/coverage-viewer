@@ -241,8 +241,11 @@ chartConfig model =
     , events = eventsConfig
     , junk =
         Junk.hoverOne model.hinted
-            [ ( categoryToStr model.category
-              , \datum -> String.fromFloat datum.value ++ "%"
+            [ ( "Date"
+              , \{ date } -> formatDate date
+              )
+            , ( categoryToStr model.category
+              , \{ value } -> String.fromFloat value ++ "%"
               )
             ]
     , grid = Grid.default
@@ -282,7 +285,7 @@ xAxisConfig =
         { title = Title.default "Time"
         , variable = Just << toFloat << Time.posixToMillis << .date
         , pixels = 1270
-        , range = Range.default
+        , range = Range.padded 20 20
         , axisLine = AxisLine.none
         , ticks = Ticks.intCustom 5 tickDate
         }
