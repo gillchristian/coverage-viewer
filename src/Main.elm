@@ -6,9 +6,10 @@ import Color exposing (Color)
 import Color.Manipulate as Manipulate
 import Data exposing (..)
 import Dict as Dict exposing (Dict)
+import File exposing (File)
 import Html
 import Html.Attributes as Attr
-import Html.Events exposing (onClick, onInput)
+import Html.Events exposing (on, onClick, onInput)
 import Json.Decode as D
 import LineChart
 import LineChart.Area as Area
@@ -34,8 +35,11 @@ import Maybe as Maybe
 import Platform.Sub as Sub
 import Random as Random
 import Result as Result
+import Result.Extra as Result
 import String
 import Svg
+import Svg.Attributes as SvgAttr
+import Task
 import Time exposing (Month(..))
 
 
@@ -112,6 +116,8 @@ type Msg
     | SubmitInput
     | LoadSampleData
     | ParseDataAndSetOffset String Int
+    | GotFile (Maybe File)
+    | FileLoaded String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -139,12 +145,22 @@ update msg model =
 
         LoadSampleData ->
             model
-                |> addCmd (Random.generate (ParseDataAndSetOffset Data.sampleData) genColorOffset)
+                |> addCmd (Random.generate (ParseDataAndSetOffset Data.sampleDataCsv) genColorOffset)
 
         ParseDataAndSetOffset data offset ->
             model
-                |> setData (Just <| decodeRepos offset data)
+                |> setData (Just <| decodeData offset data)
                 |> addCmd Cmd.none
+
+        GotFile (Just file) ->
+            ( model, Task.perform FileLoaded <| File.toString file )
+
+        GotFile Nothing ->
+            ( model, Cmd.none )
+
+        FileLoaded fileData ->
+            model
+                |> addCmd (Random.generate (ParseDataAndSetOffset fileData) genColorOffset)
 
 
 addCmd : Cmd Msg -> Model -> ( Model, Cmd Msg )
@@ -193,7 +209,13 @@ view model =
             ]
             [ Html.div
                 [ Attr.class "mr-4" ]
-                [ textarea "JSON Coverage Data" "{ ... } " model.dataInput OnInputChange ]
+                [ textarea "JSON or CSV Coverage Data" "{ ... } " model.dataInput OnInputChange ]
+            , Html.input
+                [ Attr.type_ "file"
+                , Attr.multiple False
+                , on "change" (D.map GotFile filesDecoder)
+                ]
+                []
             , Html.div [] [ button "See coverage" SubmitInput ]
             , Html.div [ Attr.class "ml-4" ] [ button "Load sample data" LoadSampleData ]
             ]
@@ -224,6 +246,73 @@ categorySwith selected =
         , radioGroupButton "Functions" (selected == Functions) (ChangeCategory Functions)
         , radioGroupButton "Lines" (selected == Lines) (ChangeCategory Lines)
         ]
+
+
+fileInput : Html.Html Msg
+fileInput =
+    Html.div
+        [ Attr.class "mt-1 sm:mt-0 sm:col-span-2"
+        ]
+        [ Html.div
+            [ Attr.class "max-w-lg flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md"
+            ]
+            [ Html.div
+                [ Attr.class "space-y-1 text-center"
+                ]
+                [ Svg.svg
+                    [ SvgAttr.class "mx-auto h-12 w-12 text-gray-400"
+                    , SvgAttr.stroke "currentColor"
+                    , SvgAttr.fill "none"
+                    , SvgAttr.viewBox "0 0 48 48"
+                    , Attr.attribute "aria-hidden" "true"
+                    ]
+                    [ Svg.path
+                        [ SvgAttr.d "M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                        , SvgAttr.strokeWidth "2"
+                        , SvgAttr.strokeLinecap "round"
+                        , SvgAttr.strokeLinejoin "round"
+                        ]
+                        []
+                    ]
+                , Html.div
+                    [ Attr.class "flex text-sm text-gray-600"
+                    ]
+                    [ Html.label
+                        [ Attr.for "file-upload"
+                        , Attr.class "relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
+                        ]
+                        [ Html.span []
+                            [ Html.text "Upload a file" ]
+                        , Html.input
+                            [ Attr.type_ "file"
+
+                            -- TODO - Adding sr-only breaks the action
+                            --      - Removing it breaks the styles
+                            -- , Attr.class "sr-only"
+                            , Attr.multiple False
+                            , Attr.id "file-upload"
+                            , Attr.name "file-upload"
+                            , on "change" (D.map GotFile filesDecoder)
+                            ]
+                            []
+                        ]
+                    , Html.p
+                        [ Attr.class "pl-1"
+                        ]
+                        [ Html.text "or drag and drop" ]
+                    ]
+                , Html.p
+                    [ Attr.class "text-xs text-gray-500"
+                    ]
+                    [ Html.text "PNG, JPG, GIF up to 10MB" ]
+                ]
+            ]
+        ]
+
+
+filesDecoder : D.Decoder (Maybe File)
+filesDecoder =
+    D.map List.head <| D.at [ "target", "files" ] (D.list File.decoder)
 
 
 
@@ -574,11 +663,23 @@ monthToStr month =
             "12"
 
 
-decodeRepos : Int -> String -> Result String ReposWithColor
-decodeRepos offset =
+decodeJson : Int -> String -> Result String ReposWithColor
+decodeJson offset =
     D.decodeString Data.repos
         >> Result.mapError D.errorToString
         >> Result.map (addColorsToRepos offset)
+
+
+decodeCsv : Int -> String -> Result String ReposWithColor
+decodeCsv offset =
+    parseCsv
+        >> Result.map (addColorsToRepos offset)
+
+
+decodeData : Int -> String -> Result String ReposWithColor
+decodeData offset data =
+    decodeCsv offset data
+        |> Result.orElseLazy (\_ -> decodeJson offset data)
 
 
 addColorsToRepos : Int -> Repos -> ReposWithColor
