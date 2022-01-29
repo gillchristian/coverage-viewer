@@ -240,11 +240,17 @@ view model =
 categorySwith : Category -> Html.Html Msg
 categorySwith selected =
     Html.div
-        [ Attr.class "flex space-x-4" ]
-        [ radioGroupButton "Statements" (selected == Statements) (ChangeCategory Statements)
-        , radioGroupButton "Branches" (selected == Branches) (ChangeCategory Branches)
-        , radioGroupButton "Functions" (selected == Functions) (ChangeCategory Functions)
-        , radioGroupButton "Lines" (selected == Lines) (ChangeCategory Lines)
+        [ Attr.class "border-b border-gray-200"
+        ]
+        [ Html.nav
+            [ Attr.class "-mb-px flex"
+            , Attr.attribute "aria-label" "Tabs"
+            ]
+            [ tab "Statements" (selected == Statements) (ChangeCategory Statements)
+            , tab "Branches" (selected == Branches) (ChangeCategory Branches)
+            , tab "Functions" (selected == Functions) (ChangeCategory Functions)
+            , tab "Lines" (selected == Lines) (ChangeCategory Lines)
+            ]
         ]
 
 
@@ -477,29 +483,29 @@ toLineStyle maybeHovered lineData =
 -- UI Elements
 
 
-radioGroupButton : String -> Bool -> Msg -> Html.Html Msg
-radioGroupButton text active msg =
+tab : String -> Bool -> Msg -> Html.Html Msg
+tab text active msg =
     Html.button
         [ onClick msg
         , Attr.classList
-            [ ( "inline-flex", True )
-            , ( "items-center", True )
-            , ( "px-2.5", True )
-            , ( "py-1.5", True )
-            , ( "border-2", True )
-            , ( "border-transparent", not active )
-            , ( "border-indigo-700", active )
-            , ( "text-xs", True )
+            [ ( "w-1/4", True )
+            , ( "py-4", True )
+            , ( "px-1", True )
+            , ( "text-center", True )
+            , ( "border-b-2", True )
             , ( "font-medium", True )
-            , ( "rounded", True )
-            , ( "shadow-sm", True )
-            , ( "text-indigo-700", True )
-            , ( "hover:text-white", True )
-            , ( "hover:bg-indigo-700", True )
+            , ( "text-sm", True )
+
+            -- HERE !!!
+            -- TODO ring on focus instead
             , ( "focus:outline-none", True )
-            , ( "focus:ring-2", True )
-            , ( "focus:ring-offset-2", True )
-            , ( "focus:ring-indigo-500", True )
+            , ( "focus:outline-none", True )
+            , ( "hover:text-gray-700", not active )
+            , ( "hover:border-gray-300", not active )
+            , ( "border-transparent", not active )
+            , ( "text-gray-500", not active )
+            , ( "border-indigo-500", active )
+            , ( "text-indigo-600", active )
             ]
         ]
         [ Html.text text ]
